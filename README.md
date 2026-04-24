@@ -1,10 +1,6 @@
 # 🌌 Stardust — String Theory
 
 <p align="center">
-  <video src="assets/demo.mp4" autoplay loop muted playsinline width="800"></video>
-</p>
-
-<p align="center">
   <strong>A high-performance cosmic screensaver that doubles as an interactive developer card.</strong>
 </p>
 
@@ -16,10 +12,6 @@
   <img src="https://img.shields.io/badge/Built%20with-Vite-646CFF?style=for-the-badge">
   <img src="https://img.shields.io/badge/Performance-6.8KB%20gzipped-black?style=for-the-badge">
 </p>
-
-<p align="center">
-  ▶️ If the video doesn't play, <a href="assets/demo.mp4">watch it here</a>
-</p> 
 
 It brings galaxies, filaments, and dark matter to life in your browser. Relax while watching a beautiful visualization of the universe—and discover my GitHub profile along the way.
 
