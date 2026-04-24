@@ -23,10 +23,6 @@
 
 It brings galaxies, filaments, and dark matter to life in your browser. Relax while watching a beautiful visualization of the universe—and discover my GitHub profile along the way.
 
-[![Live Demo](https://img.shields.io/badge/View%20Live-GitHub%20Pages-blue?style=for-the-badge)](https://criselias-dev.github.io/stardust/)
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
-[![Vite](https://img.shields.io/badge/Built%20with-Vite-646CFF?style=flat)](https://vitejs.dev/)
-[![PWA](https://img.shields.io/badge/PWA-Ready-green?style=flat)](./public/manifest.webmanifest)
 
 ## ✨ Features
 
@@ -137,4 +133,4 @@ Perfect for sharing with friends, colleagues, or as a talking point in interview
 
 **Questions?** Read [DEPLOY.md](./DEPLOY.md) for deployment help or [CHECKLIST.md](./CHECKLIST.md) for what's been optimized.
 
-VibeCoded ✨ for your cosmic inspiration!
+Vibe-coded ✨ for your cosmic inspiration!
