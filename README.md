@@ -1,6 +1,27 @@
 # 🌌 Stardust — String Theory
 
-**An interactive cosmic screensaver** that brings galaxies, filaments, and dark matter to life in your browser. Relax while watching a beautiful visualization of the universe—and discover my GitHub profile along the way.
+<p align="center">
+  <video src="assets/demo.mp4" autoplay loop muted playsinline width="800"></video>
+</p>
+
+<p align="center">
+  <strong>A high-performance cosmic screensaver that doubles as an interactive developer card.</strong>
+</p>
+
+<p align="center">
+  <a href="https://criselias-dev.github.io/stardust/">
+    <img src="https://img.shields.io/badge/View%20Live-GitHub%20Pages-blue?style=for-the-badge">
+  </a>
+  <img src="https://img.shields.io/badge/PWA-Ready-green?style=for-the-badge">
+  <img src="https://img.shields.io/badge/Built%20with-Vite-646CFF?style=for-the-badge">
+  <img src="https://img.shields.io/badge/Performance-6.8KB%20gzipped-black?style=for-the-badge">
+</p>
+
+<p align="center">
+  ▶️ If the video doesn't play, <a href="assets/demo.mp4">watch it here</a>
+</p> 
+
+It brings galaxies, filaments, and dark matter to life in your browser. Relax while watching a beautiful visualization of the universe—and discover my GitHub profile along the way.
 
 [![Live Demo](https://img.shields.io/badge/View%20Live-GitHub%20Pages-blue?style=for-the-badge)](https://criselias-dev.github.io/stardust/)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
@@ -116,4 +137,4 @@ Perfect for sharing with friends, colleagues, or as a talking point in interview
 
 **Questions?** Read [DEPLOY.md](./DEPLOY.md) for deployment help or [CHECKLIST.md](./CHECKLIST.md) for what's been optimized.
 
-Made with ✨ for cosmic inspiration.
+VibeCoded ✨ for your cosmic inspiration!
