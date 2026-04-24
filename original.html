@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stardust — String Theory</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #04070f 0%, #010205 55%, #000 100%);
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+        }
+
+        .hud {
+            position: fixed;
+            top: 18px;
+            left: 18px;
+            color: rgba(170, 255, 255, 0.8);
+            font-size: 12px;
+            letter-spacing: 1px;
+            line-height: 1.5;
+            text-shadow: 0 0 12px rgba(0, 255, 255, 0.25);
+            pointer-events: none;
+            opacity: 0.75;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="hud">
+        STARDUST STRING THEORY<br>
+        by Cris Elias<br>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d", { alpha: true });
+
+        let w = canvas.width = window.innerWidth;
+        let h = canvas.height = window.innerHeight;
+        let cx = w * 0.5;
+        let cy = h * 0.5;
+
+        window.addEventListener("resize", () => {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+            cx = w * 0.5;
+            cy = h * 0.5;
+        });
+
+        // =========================================================
+        // CONFIG
+        // =========================================================
+        const CONFIG = {
+            GALAXY_COUNT: 100,
+            FILAMENT_LINKS_MAX_DIST: 200,
+            FORWARD_SPEED: 2.50,
+            DEPTH_NEAR: 20,
+            DEPTH_FAR: 1500,
+            PROJECTION: 900,
+            DARK_MATTER_COUNT: 300,
+            MAX_ACTIVE_EXPLOSIONS: 12,
+            EDGE_ON_CHANCE: 0.50,
+            STAR_DUST_COUNT: 1200,
+            STAR_DUST_ATTRACTION_RADIUS: 260,
+            STAR_DUST_CAPTURE_RADIUS: 48,
+            STAR_DUST_BASE_SPEED: 0.50,
+            STAR_DUST_PULL: 0.024,
+            STAR_DUST_DARKMATTER_RADIUS: 260
+        };
+
+        const galaxies = [];
+        const darkMatter = [];
+        const explosions = [];
+        const starDust = [];
+
+        function rand(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function clamp(v, min, max) {
+            return Math.max(min, Math.min(max, v));
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function dist3(a, b) {
+            const dx = a.x - b.x;
+            const dy = a.y - b.y;
+            const dz = a.z - b.z;
+            return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        function hsl(h, s, l, a = 1) {
+            return `hsla(${h}, ${s}%, ${l}%, ${a})`;
+        }
+
+        function project(x, y, z) {
+            const safeZ = Math.max(1, z);
+            const scale = CONFIG.PROJECTION / safeZ;
+            return {
+                x: cx + x * scale,
+                y: cy + y * scale,
+                scale
+            };
+        }
+
+        function getNearestGalaxy(x, y) {
+            let nearest = null;
+            let bestDistSq = Infinity;
+
+            for (const g of galaxies) {
+                if (g.merging) continue;
+                if (g.z < 8) continue;
+
+                const dx = g.x - x;
+                const dy = g.y - y;
+                const d2 = dx * dx + dy * dy;
+
+                if (d2 < bestDistSq) {
+                    bestDistSq = d2;
+                    nearest = g;
+                }
+            }
+
+            return { galaxy: nearest, distSq: bestDistSq };
+        }
+
+        function getDarkMatterFlow(x, y) {
+            let flowX = 0;
+            let flowY = 0;
+            let totalWeight = 0;
+
+            const maxR = CONFIG.STAR_DUST_DARKMATTER_RADIUS;
+            const maxRSq = maxR * maxR;
+
+            for (let i = 0; i < darkMatter.length; i += 8) {
+                const dm = darkMatter[i];
+
+                const dx = dm.x - x;
+                const dy = dm.y - y;
+                const d2 = dx * dx + dy * dy;
+
+                if (d2 > maxRSq) continue;
+
+                const d = Math.sqrt(d2) || 0.0001;
+                const weight = 1 - d / maxR;
+
+                flowX += (dx / d) * weight;
+                flowY += (dy / d) * weight;
+                totalWeight += weight;
+            }
+
+            if (totalWeight > 0) {
+                flowX /= totalWeight;
+                flowY /= totalWeight;
+            }
+
+            return { x: flowX, y: flowY };
+        }
+
+        // =========================================================
+        // GALAXY
+        // =========================================================
+        class Galaxy {
+            constructor(initialFront = false) {
+                this.reset(initialFront);
+            }
+
+            reset(initialFront = false) {
+                const spread = Math.min(w, h) * 0.9;
+                this.x = rand(-spread, spread);
+                this.y = rand(-spread * 0.65, spread * 0.65);
+
+                this.z = initialFront
+                    ? rand(120, 650)
+                    : rand(CONFIG.DEPTH_NEAR + 80, CONFIG.DEPTH_FAR);
+
+                this.vz = rand(CONFIG.FORWARD_SPEED * 0.7, CONFIG.FORWARD_SPEED * 1.3);
+                this.driftX = rand(-0.08, 0.08);
+                this.driftY = rand(-0.06, 0.06);
+
+                this.baseSize = rand(5, 15);
+                this.spin = rand(0, Math.PI * 2);
+
+                const spinDir = Math.random() < 0.5 ? -1 : 1;
+                this.spinSpeed = rand(0.006, 0.018) * spinDir;
+
+                this.hueA = rand(180, 340);
+                this.hueB = (this.hueA + rand(20, 90)) % 360;
+                this.hueC = (this.hueA + rand(100, 180)) % 360;
+
+                this.brightness = rand(0.8, 1.15);
+
+                this.mass = rand(0.9, 1.4);
+                this.coreRatio = rand(0.18, 0.28);
+
+                this.passingThrough = false;
+                this.passPhase = 0;
+                this.merging = false;
+                this.mergeCooldown = 0;
+
+                // EDGE-ON / FACE-ON
+                this.edgeOn = Math.random() < CONFIG.EDGE_ON_CHANCE;
+                this.edgeTilt = rand(-0.22, 0.22);
+                this.edgeThickness = rand(0.08, 0.18);
+            }
+
+            update() {
+                this.spin += this.spinSpeed;
+
+                if (this.merging) {
+                    this.spin += this.spinSpeed * 0.35;
+                    if (this.mergeCooldown > 0) this.mergeCooldown--;
+                    return;
+                }
+
+                if (this.mergeCooldown > 0) this.mergeCooldown--;
+
+                this.x += this.driftX * (1 + (1000 - this.z) / 1000) * 0.6;
+                this.y += this.driftY * (1 + (1000 - this.z) / 1000) * 0.5;
+
+                this.x *= 0.9994;
+                this.y *= 0.9995;
+
+                this.z -= this.vz;
+
+                if (!this.passingThrough && this.z < 55) {
+                    this.passingThrough = true;
+                    this.passPhase = 1;
+                }
+
+                if (this.passingThrough) {
+                    this.z -= this.vz * 1.7;
+
+                    if (this.z < -110) {
+                        this.reset(false);
+                    }
+                }
+
+                const limitX = Math.min(w, h) * 1.6;
+                const limitY = Math.min(w, h) * 1.2;
+
+                if (Math.abs(this.x) > limitX) this.x *= -0.82;
+                if (Math.abs(this.y) > limitY) this.y *= -0.82;
+            }
+
+            getScreenData() {
+                const p = project(this.x, this.y, Math.max(this.z, 6));
+                const size = this.baseSize * p.scale * 0.7 * this.brightness;
+                return { ...p, size };
+            }
+
+            draw() {
+                const zForRender = Math.max(this.z, 6);
+                const p = project(this.x, this.y, zForRender);
+
+                let size = this.baseSize * p.scale * 0.7 * this.brightness;
+                size = clamp(size, 0.6, 180);
+
+                if (this.passingThrough && this.z < 40) {
+                    const extra = clamp((40 - this.z) / 40, 0, 2.8);
+                    size *= (1 + extra * 0.65);
+                }
+
+                const depthAlpha = clamp(1 - (zForRender / CONFIG.DEPTH_FAR), 0.18, 1);
+
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(this.spin + (this.edgeOn ? this.edgeTilt : 0));
+
+                // HALO EXTERNO
+                for (let i = 0; i < 4; i++) {
+                    const haloR = size * (1.6 + i * 0.55);
+                    const alpha = 0.08 * depthAlpha * (1 - i * 0.18);
+
+                    const grad = ctx.createRadialGradient(0, 0, size * 0.08, 0, 0, haloR);
+                    grad.addColorStop(0, hsl(this.hueA, 85, 70, alpha * 0.65));
+                    grad.addColorStop(0.35, hsl(this.hueB, 75, 60, alpha * 0.45));
+                    grad.addColorStop(0.7, hsl(this.hueC, 65, 55, alpha * 0.18));
+                    grad.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.save();
+                    if (this.edgeOn) ctx.scale(1.0, 0.42);
+                    ctx.beginPath();
+                    ctx.fillStyle = grad;
+                    ctx.arc(0, 0, haloR, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+
+                if (this.edgeOn) {
+                    // =====================================================
+                    // EDGE-ON GALAXY
+                    // =====================================================
+
+                    // DISCO FINO (visão lateral)
+                    ctx.save();
+                    ctx.scale(8.4, this.edgeThickness);
+
+                    const diskGrad = ctx.createRadialGradient(0, 0, size * 0.02, 0, 0, size * 1.45);
+                    diskGrad.addColorStop(0, hsl(this.hueB, 95, 82, 0.34 * depthAlpha));
+                    diskGrad.addColorStop(0.16, hsl(this.hueA, 92, 70, 0.26 * depthAlpha));
+                    diskGrad.addColorStop(0.52, hsl(this.hueC, 84, 58, 0.12 * depthAlpha));
+                    diskGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.beginPath();
+                    ctx.fillStyle = diskGrad;
+                    ctx.arc(0, 0, size * 1.4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+
+                    // FAIXA LUMINOSA DO DISCO
+                    const bandGrad = ctx.createLinearGradient(-size * 7, 0, size * 7, 0);
+                    bandGrad.addColorStop(0, "rgba(0,0,0,0)");
+                    bandGrad.addColorStop(0.18, hsl(this.hueA, 90, 72, 0.08 * depthAlpha));
+                    bandGrad.addColorStop(0.5, hsl(this.hueB, 100, 88, 0.16 * depthAlpha));
+                    bandGrad.addColorStop(0.82, hsl(this.hueC, 90, 72, 0.08 * depthAlpha));
+                    bandGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.fillStyle = bandGrad;
+                    ctx.fillRect(-size * 7, -size * 0.22, size * 14, size * 0.44);
+
+                    // DUST / PARTICULAS AO LONGO DO DISCO
+                    for (let i = 0; i < 18; i++) {
+                        const t = i / 17;
+                        const side = (t - 0.5) * 2;
+                        const px = side * size * rand(1.5, 5.8);
+                        const py = rand(-size * 0.35, size * 0.35);
+
+                        const armHue = i % 2 === 0 ? this.hueA : this.hueC;
+                        const dustRadius = Math.max(0.4, size * rand(0.015, 0.04));
+                        const dustAlpha = rand(0.05, 0.12) * depthAlpha;
+
+                        const dustGrad = ctx.createRadialGradient(
+                            px, py, 0,
+                            px, py, dustRadius * 5.5
+                        );
+                        dustGrad.addColorStop(0, hsl(armHue, 100, 90, dustAlpha * 1.25));
+                        dustGrad.addColorStop(0.35, hsl(armHue, 90, 72, dustAlpha));
+                        dustGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                        ctx.beginPath();
+                        ctx.fillStyle = dustGrad;
+                        ctx.arc(px, py, dustRadius * 5.5, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        ctx.beginPath();
+                        ctx.fillStyle = hsl(armHue, 100, 92, dustAlpha * 1.1);
+                        ctx.arc(px, py, dustRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // BOJO CENTRAL ESFÉRICO (o núcleo "de livro")
+                    const bulgeR = Math.max(0.2, size * 0.45);
+                    const bulgeGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, bulgeR * 3.2);
+                    bulgeGrad.addColorStop(0, "rgba(255,255,255,0.82)");
+                    bulgeGrad.addColorStop(0.12, hsl(this.hueB, 100, 86, 0.52 * depthAlpha));
+                    bulgeGrad.addColorStop(0.45, hsl(this.hueA, 92, 70, 0.22 * depthAlpha));
+                    bulgeGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.beginPath();
+                    ctx.fillStyle = bulgeGrad;
+                    ctx.arc(0, 0, bulgeR * 3.2, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // NÚCLEO
+                    const coreR = Math.max(1.2, size * this.coreRatio * 1.2);
+
+                    const coreGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR * 2.8);
+                    coreGlow.addColorStop(0, "rgba(255,255,255,0.9)");
+                    coreGlow.addColorStop(0.12, hsl(this.hueB, 100, 86, 0.65 * depthAlpha));
+                    coreGlow.addColorStop(0.4, hsl(this.hueA, 95, 70, 0.28 * depthAlpha));
+                    coreGlow.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.beginPath();
+                    ctx.fillStyle = coreGlow;
+                    ctx.arc(0, 0, coreR * 4.8, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.beginPath();
+                    ctx.fillStyle = "rgba(4,4,8,0.9)";
+                    ctx.arc(0, 0, Math.max(0.8, coreR * 0.38), 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    // =====================================================
+                    // FACE-ON GALAXY (original)
+                    // =====================================================
+                    ctx.save();
+                    ctx.scale(5.0, 1.0);
+
+                    const diskGrad = ctx.createRadialGradient(0, 0, size * 0.04, 0, 0, size * 1.45);
+                    diskGrad.addColorStop(0, hsl(this.hueB, 95, 80, 0.30 * depthAlpha));
+                    diskGrad.addColorStop(0.18, hsl(this.hueA, 90, 68, 0.22 * depthAlpha));
+                    diskGrad.addColorStop(0.5, hsl(this.hueC, 85, 58, 0.12 * depthAlpha));
+                    diskGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.beginPath();
+                    ctx.fillStyle = diskGrad;
+                    ctx.arc(0, 0, size * 1.35, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+
+                    // Ambient orbital particles across the full face-on disk
+                    for (let i = 0; i < 42; i++) {
+                        const seed = i * 0.61803398875;
+
+                        const randA = Math.sin((seed + this.spin * 0.07) * 91.73);
+                        const randB = Math.sin((seed + this.spin * 0.11) * 127.41);
+                        const randC = Math.sin((seed + this.spin * 0.05) * 173.29);
+
+                        const n1 = randA - Math.floor(randA);
+                        const n2 = randB - Math.floor(randB);
+                        const n3 = randC - Math.floor(randC);
+
+                        const orbitT = n1;
+                        const ang = n2 * Math.PI * 2 + this.spin * (0.18 + orbitT * 0.35);
+
+                        // Bias density toward the inner/mid disk
+                        const radialBias = Math.pow(orbitT, 0.92);
+                        const r = size * (0.14 + radialBias * 1.32);
+
+                        // Slight elliptical flattening to match the edge-on stylization
+                        const px = Math.cos(ang) * r * 1.18;
+                        const py = Math.sin(ang) * r * 0.62;
+
+                        const pRadius = Math.max(0.35, size * (0.018 + (1 - orbitT) * 0.018));
+                        const pAlpha = (0.035 + (1 - orbitT) * 0.045) * depthAlpha;
+
+                        const pHue = n3 > 0.5 ? this.hueA : this.hueC;
+
+                        const pGlow = ctx.createRadialGradient(
+                            px, py, 0,
+                            px, py, pRadius * 4.2
+                        );
+                        pGlow.addColorStop(0, hsl(pHue, 95, 84, pAlpha * 1.25));
+                        pGlow.addColorStop(0.4, hsl(pHue, 90, 70, pAlpha));
+                        pGlow.addColorStop(1, "rgba(0,0,0,0)");
+
+                        ctx.beginPath();
+                        ctx.fillStyle = pGlow;
+                        ctx.arc(px, py, pRadius * 4.2, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        ctx.beginPath();
+                        ctx.fillStyle = hsl(pHue, 100, 90, pAlpha * 1.15);
+                        ctx.arc(px, py, pRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    ctx.lineCap = "round";
+
+                    for (let arm = 0; arm < 2; arm++) {
+                        ctx.beginPath();
+
+                        for (let t = 0; t <= 1; t += 0.08) {
+                            const ang = arm * Math.PI + t * 4.5 + this.spin * 0.4;
+                            const r = size * (0.25 + t * 1.05);
+                            const px = Math.cos(ang) * r * 1.35;
+                            const py = Math.sin(ang) * r * 0.55;
+
+                            if (t === 0) ctx.moveTo(px, py);
+                            else ctx.lineTo(px, py);
+
+                            const armHue = arm === 0 ? this.hueA : this.hueC;
+
+                            const seedA = Math.sin((t + arm * 0.37 + this.spin * 0.13) * 91.7);
+                            const seedB = Math.sin((t * 1.73 + arm * 0.61 + this.spin * 0.19) * 127.4);
+                            const seedC = Math.sin((t * 2.31 + arm * 0.83 + this.spin * 0.11) * 173.2);
+
+                            const n1 = seedA - Math.floor(seedA);
+                            const n2 = seedB - Math.floor(seedB);
+                            const n3 = seedC - Math.floor(seedC);
+
+                            const jitterX = (n1 - 0.5) * size * 0.08 * (0.4 + t);
+                            const jitterY = (n2 - 0.5) * size * 0.05 * (0.4 + t);
+
+                            const dustChance = 0.68 - t * 0.18;
+                            if (n1 < dustChance) {
+                                const dotX = px + jitterX;
+                                const dotY = py + jitterY;
+
+                                const dustRadius = Math.max(0.35, size * (0.018 + (1 - t) * 0.02));
+                                const dustAlpha = (0.07 + (1 - t) * 0.06) * depthAlpha;
+
+                                const dustGrad = ctx.createRadialGradient(
+                                    dotX, dotY, 0,
+                                    dotX, dotY, dustRadius * 4.5
+                                );
+                                dustGrad.addColorStop(0, hsl(armHue, 95, 82, dustAlpha * 1.3));
+                                dustGrad.addColorStop(0.35, hsl(armHue, 90, 70, dustAlpha));
+                                dustGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                                ctx.beginPath();
+                                ctx.fillStyle = dustGrad;
+                                ctx.arc(dotX, dotY, dustRadius * 4.5, 0, Math.PI * 2);
+                                ctx.fill();
+
+                                ctx.beginPath();
+                                ctx.fillStyle = hsl(armHue, 95, 88, dustAlpha * 1.15);
+                                ctx.arc(dotX, dotY, dustRadius, 0, Math.PI * 2);
+                                ctx.fill();
+                            }
+
+                            if (n3 > 0.78) {
+                                const clusterX = px + (n2 - 0.5) * size * 0.12;
+                                const clusterY = py + (n3 - 0.5) * size * 0.08;
+
+                                const clusterRadius = Math.max(0.6, size * (0.028 + (1 - t) * 0.03));
+                                const clusterAlpha = (0.09 + (1 - t) * 0.08) * depthAlpha;
+
+                                const clusterGrad = ctx.createRadialGradient(
+                                    clusterX, clusterY, 0,
+                                    clusterX, clusterY, clusterRadius * 6
+                                );
+                                clusterGrad.addColorStop(0, hsl(armHue, 100, 90, clusterAlpha * 1.5));
+                                clusterGrad.addColorStop(0.28, hsl(armHue, 95, 78, clusterAlpha));
+                                clusterGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                                ctx.beginPath();
+                                ctx.fillStyle = clusterGrad;
+                                ctx.arc(clusterX, clusterY, clusterRadius * 6, 0, Math.PI * 2);
+                                ctx.fill();
+
+                                ctx.beginPath();
+                                ctx.fillStyle = hsl(armHue, 100, 92, clusterAlpha * 1.2);
+                                ctx.arc(clusterX, clusterY, clusterRadius, 0, Math.PI * 2);
+                                ctx.fill();
+                            }
+                        }
+
+                        ctx.strokeStyle = hsl(
+                            arm === 0 ? this.hueA : this.hueC,
+                            90,
+                            72,
+                            0.14 * depthAlpha
+                        );
+                        ctx.lineWidth = Math.max(0.5, size * 0.5 * (0.15 - arm * 0.05));
+                        ctx.stroke();
+                    }
+
+                    const coreR = Math.max(1.2, size * this.coreRatio);
+
+                    const coreGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR * 2.2);
+                    coreGlow.addColorStop(0, "rgba(255,255,255,0.85)");
+                    coreGlow.addColorStop(0.12, hsl(this.hueB, 100, 85, 0.6 * depthAlpha));
+                    coreGlow.addColorStop(0.4, hsl(this.hueA, 95, 70, 0.25 * depthAlpha));
+                    coreGlow.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.beginPath();
+                    ctx.fillStyle = coreGlow;
+                    ctx.arc(0, 0, coreR * 4.5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.beginPath();
+                    ctx.fillStyle = "rgba(4,4,8,0.9)";
+                    ctx.arc(0, 0, coreR * 0.75, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.save();
+                    ctx.rotate(this.spin * 1.4);
+                    ctx.scale(1.5, 0.55);
+                    const accGrad = ctx.createRadialGradient(0, 0, coreR * 0.6, 0, 0, coreR * 2.4);
+                    accGrad.addColorStop(0, "rgba(255,255,255,0)");
+                    accGrad.addColorStop(0.35, hsl(this.hueC, 100, 80, 0.30 * depthAlpha));
+                    accGrad.addColorStop(0.7, hsl(this.hueA, 90, 60, 0.12 * depthAlpha));
+                    accGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.beginPath();
+                    ctx.fillStyle = accGrad;
+                    ctx.arc(0, 0, coreR * 2.4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+
+                    ctx.beginPath();
+                    ctx.fillStyle = "rgba(4,4,8,0.9)";
+                    ctx.arc(0, 0, Math.max(0.8, coreR * 0.28), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // =========================================================
+        // DARK MATTER
+        // =========================================================
+        class DarkMatterNode {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                const spread = Math.min(w, h) * 0.9;
+                this.x = rand(-spread, spread);
+                this.y = rand(-spread * 1.4, spread * 1.4);
+                this.z = rand(80, CONFIG.DEPTH_FAR);
+                this.vz = rand(CONFIG.FORWARD_SPEED * 0.55, CONFIG.FORWARD_SPEED * 1.05);
+            }
+
+            update() {
+                this.z -= this.vz;
+                if (this.z < 10) this.reset();
+            }
+        }
+
+        // =========================================================
+        // STAR DUST
+        // =========================================================
+        class StarDust {
+            constructor() {
+                this.reset(true);
+            }
+
+            reset(initial = false) {
+                const spread = Math.min(w, h) * 1.05;
+
+                this.x = rand(-spread, spread);
+                this.y = rand(-spread * 0.8, spread * 0.8);
+
+                this.z = initial
+                    ? rand(120, CONFIG.DEPTH_FAR)
+                    : rand(CONFIG.DEPTH_NEAR + 40, CONFIG.DEPTH_FAR);
+
+                this.vz = rand(
+                    CONFIG.FORWARD_SPEED * CONFIG.STAR_DUST_BASE_SPEED * 0.8,
+                    CONFIG.FORWARD_SPEED * CONFIG.STAR_DUST_BASE_SPEED * 1.25
+                );
+
+                this.size = rand(0.22, 0.52);
+                this.alpha = rand(0.025, 0.085);
+
+                this.driftX = rand(-0.015, 0.015);
+                this.driftY = rand(-0.012, 0.012);
+            }
+
+            update() {
+                this.z -= this.vz;
+
+                // fluxo herdado do campo de dark matter
+                const dmFlow = getDarkMatterFlow(this.x, this.y);
+                this.x += dmFlow.x * 0.35 + this.driftX;
+                this.y += dmFlow.y * 0.28 + this.driftY;
+
+                // leve amortecimento para não virar "nuvem maluca"
+                this.driftX *= 0.998;
+                this.driftY *= 0.998;
+
+                // atração pela galáxia mais próxima
+                const nearest = getNearestGalaxy(this.x, this.y);
+
+                if (nearest.galaxy) {
+                    const radius = CONFIG.STAR_DUST_ATTRACTION_RADIUS;
+                    const radiusSq = radius * radius;
+
+                    if (nearest.distSq < radiusSq) {
+                        const dx = nearest.galaxy.x - this.x;
+                        const dy = nearest.galaxy.y - this.y;
+                        const d = Math.sqrt(nearest.distSq) || 0.0001;
+
+                        const t = 1 - d / radius;
+                        const pull = CONFIG.STAR_DUST_PULL * t;
+
+                        this.x += (dx / d) * pull * 10;
+                        this.y += (dy / d) * pull * 8;
+
+                        if (d < CONFIG.STAR_DUST_CAPTURE_RADIUS) {
+                            this.reset(false);
+                            return;
+                        }
+                    }
+                }
+
+                // bounds
+                const limitX = Math.min(w, h) * 1.9;
+                const limitY = Math.min(w, h) * 1.5;
+
+                if (Math.abs(this.x) > limitX || Math.abs(this.y) > limitY || this.z < 10) {
+                    this.reset(false);
+                }
+            }
+
+            draw() {
+                const zSafe = Math.max(this.z, 10);
+                const p = project(this.x, this.y, zSafe);
+
+                if (p.x < -30 || p.x > w + 30 || p.y < -30 || p.y > h + 30) return;
+
+                const depth = clamp(1 - zSafe / CONFIG.DEPTH_FAR, 0, 1);
+                const r = Math.max(0.12, this.size * p.scale * lerp(0.65, 1.1, depth));
+                const a = this.alpha * lerp(0.45, 1.0, depth);
+
+                ctx.beginPath();
+                ctx.fillStyle = `rgba(185, 235, 255, ${a})`;
+                ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // =========================================================
+        // EXPLOSION = GALAXY MERGER EFFECT
+        // =========================================================
+        class Explosion {
+            constructor(a, b) {
+                this.a = a;
+                this.b = b;
+
+                this.x = (a.x + b.x) * 0.5;
+                this.y = (a.y + b.y) * 0.5;
+                this.z = (a.z + b.z) * 0.5;
+
+                this.hue = ((a.hueA + b.hueB) * 0.5) % 360;
+
+                this.life = 72;
+                this.maxLife = 72;
+
+                this.doneMerge = false;
+            }
+
+            update() {
+                this.z -= CONFIG.FORWARD_SPEED * 0.9;
+                this.life--;
+
+                const t = 1 - (this.life / this.maxLife);
+
+                if (this.a && this.b && !this.doneMerge) {
+                    const pull = 0.14;
+
+                    this.a.x = lerp(this.a.x, this.x, pull);
+                    this.a.y = lerp(this.a.y, this.y, pull);
+                    this.a.z = lerp(this.a.z, this.z, pull * 0.8);
+
+                    this.b.x = lerp(this.b.x, this.x, pull);
+                    this.b.y = lerp(this.b.y, this.y, pull);
+                    this.b.z = lerp(this.b.z, this.z, pull * 0.8);
+
+                    this.a.spinSpeed *= 0.985;
+                    this.b.spinSpeed *= 0.985;
+                    this.a.driftX *= 0.96;
+                    this.a.driftY *= 0.96;
+                    this.b.driftX *= 0.96;
+                    this.b.driftY *= 0.96;
+                }
+
+                if (!this.doneMerge && t >= 0.55) {
+                    this.spawnMergedGalaxy();
+                    this.doneMerge = true;
+                }
+            }
+
+            spawnMergedGalaxy() {
+                const merged = new Galaxy(false);
+
+                merged.x = this.x;
+                merged.y = this.y;
+                merged.z = this.z;
+
+                merged.baseSize = clamp((this.a.baseSize + this.b.baseSize) * 0.62, 6, 18);
+                merged.vz = clamp((this.a.vz + this.b.vz) * 0.5, CONFIG.FORWARD_SPEED * 0.8, CONFIG.FORWARD_SPEED * 1.35);
+
+                merged.driftX = (this.a.driftX + this.b.driftX) * 0.25;
+                merged.driftY = (this.a.driftY + this.b.driftY) * 0.25;
+
+                merged.spin = (this.a.spin + this.b.spin) * 0.5;
+                merged.spinSpeed = (this.a.spinSpeed + this.b.spinSpeed) * 0.5;
+
+                merged.hueA = this.a.hueA;
+                merged.hueB = ((this.a.hueB + this.b.hueB) * 0.5) % 360;
+                merged.hueC = this.b.hueC;
+
+                merged.brightness = clamp((this.a.brightness + this.b.brightness) * 0.55, 0.85, 1.2);
+                merged.mass = clamp((this.a.mass + this.b.mass) * 0.6, 1.0, 1.8);
+                merged.coreRatio = clamp((this.a.coreRatio + this.b.coreRatio) * 0.65, 0.20, 0.34);
+
+                // herda ou sorteia edge-on
+                merged.edgeOn = Math.random() < 0.5 ? this.a.edgeOn : this.b.edgeOn;
+                if (Math.random() < 0.18) merged.edgeOn = !merged.edgeOn;
+                merged.edgeTilt = rand(-0.18, 0.18);
+                merged.edgeThickness = rand(0.09, 0.17);
+
+                merged.mergeCooldown = 90;
+
+                const replaceIndex = galaxies.indexOf(this.a);
+                if (replaceIndex !== -1) {
+                    galaxies[replaceIndex] = merged;
+                }
+
+                this.b.reset(false);
+                this.b.mergeCooldown = 50;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+
+                const p = project(this.x, this.y, Math.max(this.z, 6));
+                const t = this.life / this.maxLife;
+                const progress = 1 - t;
+                const scale = Math.max(0.25, p.scale);
+
+                const flashRadius = clamp((10 + progress * 28) * scale, 4, 120);
+                const flashAlpha = Math.max(0, 0.55 * Math.pow(t, 0.7));
+
+                const flash = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, flashRadius);
+                flash.addColorStop(0, `rgba(255,255,255,${0.75 * flashAlpha})`);
+                flash.addColorStop(0.14, `rgba(220,245,255,${0.55 * flashAlpha})`);
+                flash.addColorStop(0.4, hsl(this.hue, 100, 80, 0.22 * flashAlpha));
+                flash.addColorStop(1, "rgba(0,0,0,0)");
+
+                ctx.beginPath();
+                ctx.fillStyle = flash;
+                ctx.arc(p.x, p.y, flashRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                const ringProgress = Math.min(1, progress * 1.35);
+                const ringRadius = clamp((14 + ringProgress * 90) * scale, 4, 260);
+                const ringAlpha = Math.max(0, (1 - ringProgress) * 0.34);
+
+                if (ringAlpha > 0.01) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(180,245,255,${ringAlpha})`;
+                    ctx.lineWidth = clamp(1.2 * scale, 0.8, 3.2);
+                    ctx.arc(p.x, p.y, ringRadius, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.strokeStyle = hsl((this.hue + 22) % 360, 100, 78, ringAlpha * 0.42);
+                    ctx.lineWidth = clamp(2.8 * scale, 1.0, 5.4);
+                    ctx.arc(p.x, p.y, ringRadius * 1.03, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                if (progress > 0.45) {
+                    const birth = (progress - 0.45) / 0.55;
+                    const birthR = clamp((8 + birth * 34) * scale, 3, 90);
+                    const birthAlpha = (1 - birth) * 0.22;
+
+                    const birthGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, birthR);
+                    birthGrad.addColorStop(0, `rgba(255,255,255,${birthAlpha * 1.2})`);
+                    birthGrad.addColorStop(0.25, hsl(this.hue, 100, 84, birthAlpha));
+                    birthGrad.addColorStop(1, "rgba(0,0,0,0)");
+
+                    ctx.beginPath();
+                    ctx.fillStyle = birthGrad;
+                    ctx.arc(p.x, p.y, birthR, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            get dead() {
+                return this.life <= 0 || this.z < -120;
+            }
+        }
+
+        // =========================================================
+        // INIT
+        // =========================================================
+        for (let i = 0; i < CONFIG.GALAXY_COUNT; i++) {
+            galaxies.push(new Galaxy(i < 12));
+        }
+
+        for (let i = 0; i < CONFIG.DARK_MATTER_COUNT; i++) {
+            darkMatter.push(new DarkMatterNode());
+        }
+
+        for (let i = 0; i < CONFIG.STAR_DUST_COUNT; i++) {
+            starDust.push(new StarDust());
+        }
+
+        // =========================================================
+        // COLLISIONS
+        // =========================================================
+        function handleGalaxyCollisions() {
+            const len = galaxies.length;
+
+            for (let i = 0; i < len; i++) {
+                const a = galaxies[i];
+                if (a.mergeCooldown > 0) continue;
+                if (a.merging) continue;
+
+                for (let j = i + 1; j < len; j++) {
+                    const b = galaxies[j];
+                    if (b.mergeCooldown > 0) continue;
+                    if (b.merging) continue;
+
+                    if (Math.abs(a.z - b.z) > 70) continue;
+
+                    const d = dist3(a, b);
+                    const threshold = (a.baseSize + b.baseSize) * 3.0;
+
+                    if (d < threshold) {
+                        if (explosions.length < CONFIG.MAX_ACTIVE_EXPLOSIONS) {
+                            a.merging = true;
+                            b.merging = true;
+
+                            explosions.push(new Explosion(a, b));
+                        }
+
+                        a.mergeCooldown = 90;
+                        b.mergeCooldown = 90;
+                        return;
+                    }
+                }
+            }
+        }
+
+        // =========================================================
+        // FILAMENT MESH
+        // =========================================================
+        function drawFilaments() {
+            const visible = [];
+
+            for (const g of galaxies) {
+                const p = g.getScreenData();
+                if (
+                    p.x > -220 && p.x < w + 220 &&
+                    p.y > -220 && p.y < h + 220 &&
+                    g.z > 8
+                ) {
+                    visible.push({ g, p });
+                }
+            }
+
+            for (let i = 0; i < visible.length; i++) {
+                const a = visible[i];
+
+                for (let j = i + 1; j < visible.length; j++) {
+                    const b = visible[j];
+
+                    const dx = a.p.x - b.p.x;
+                    const dy = a.p.y - b.p.y;
+                    const ds = Math.sqrt(dx * dx + dy * dy);
+
+                    if (ds < CONFIG.FILAMENT_LINKS_MAX_DIST) {
+                        const zGap = Math.abs(a.g.z - b.g.z);
+                        if (zGap > 220) continue;
+
+                        const alpha = (1 - ds / CONFIG.FILAMENT_LINKS_MAX_DIST) * 0.18;
+                        const width = clamp((a.p.scale + b.p.scale) * 2.20, 1.40, 8.8);
+
+                        const grad = ctx.createLinearGradient(a.p.x, a.p.y, b.p.x, b.p.y);
+                        grad.addColorStop(0, hsl(a.g.hueA, 90, 70, alpha * 0.65));
+                        grad.addColorStop(0.5, "rgba(220,255,255," + (alpha * 0.9) + ")");
+                        grad.addColorStop(1, hsl(b.g.hueC, 90, 70, alpha * 0.65));
+
+                        ctx.beginPath();
+                        ctx.strokeStyle = grad;
+                        ctx.lineWidth = width;
+                        ctx.moveTo(a.p.x, a.p.y);
+
+                        const mx = (a.p.x + b.p.x) * 0.5 + (a.p.y - b.p.y) * 0.03;
+                        const my = (a.p.y + b.p.y) * 0.5 + (b.p.x - a.p.x) * 0.03;
+
+                        ctx.quadraticCurveTo(mx, my, b.p.x, b.p.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            for (let i = 0; i < 24; i++) {
+                const dm = darkMatter[(Math.random() * darkMatter.length) | 0];
+                const p = project(dm.x, dm.y, Math.max(dm.z, 12));
+
+                const r = clamp((CONFIG.PROJECTION / Math.max(dm.z, 30)) * 30, 10, 50);
+                const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+                grad.addColorStop(0, "rgba(120,100,255,0.02)");
+                grad.addColorStop(0.5, "rgba(40,20,80,0.01)");
+                grad.addColorStop(1, "rgba(0,0,0,0)");
+
+                ctx.beginPath();
+                ctx.fillStyle = grad;
+                ctx.arc(p.x, p.y, r, 0, Math.PI * 32);
+                ctx.fill();
+            }
+        }
+
+        // =========================================================
+        // BACKGROUND FLOW STREAKS
+        // =========================================================
+        function drawDepthFog() {
+            const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.75);
+            grad.addColorStop(0, "rgba(12,18,36,0.05)");
+            grad.addColorStop(0.45, "rgba(5,8,18,0.03)");
+            grad.addColorStop(1, "rgba(0,0,0,0.10)");
+
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+        }
+
+        // =========================================================
+        // ANIMATE
+        // =========================================================
+        function animate() {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+            ctx.fillRect(0, 0, w, h);
+
+            drawDepthFog();
+
+            for (const dm of darkMatter) dm.update();
+
+            // Stardust vem antes das galáxias (poeira cósmica antecedendo estruturas)
+            for (const sd of starDust) sd.update();
+
+            for (const g of galaxies) g.update();
+
+            handleGalaxyCollisions();
+
+            drawFilaments();
+
+            // Desenha poeira antes das galáxias para manter profundidade sem brigar com núcleos
+            starDust.sort((a, b) => b.z - a.z);
+            for (const sd of starDust) sd.draw();
+
+            galaxies.sort((a, b) => b.z - a.z);
+            for (const g of galaxies) g.draw();
+
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const ex = explosions[i];
+                ex.update();
+                ex.draw();
+
+                if (ex.dead) explosions.splice(i, 1);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>
